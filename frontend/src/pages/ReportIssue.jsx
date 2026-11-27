@@ -2,12 +2,25 @@ import { useState } from "react";
 import {
     ArrowLeft,
     MapPin,
-    Upload,
     ImagePlus,
     X,
     Send,
     FileText,
+    Loader2,
+    AlertCircle,
 } from "lucide-react";
+import { createIssue } from "../services/issueService";
+
+const CATEGORY_MAP = {
+    "Road Damage": "road_damage",
+    Pothole: "pothole",
+    Garbage: "garbage",
+    "Water Supply": "water",
+    Streetlight: "streetlight",
+    Drainage: "drainage",
+    "Public Safety": "other",
+    Other: "other",
+};
 
 function ReportIssue({ onBack }) {
     const [formData, setFormData] = useState({
@@ -19,9 +32,13 @@ function ReportIssue({ onBack }) {
 
     const [image, setImage] = useState(null);
     const [preview, setPreview] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState("");
     const [submitted, setSubmitted] = useState(false);
 
     const handleChange = (e) => {
+        if (error) setError("");
+
         setFormData({
             ...formData,
             [e.target.name]: e.target.value,
@@ -43,6 +60,8 @@ function ReportIssue({ onBack }) {
             return;
         }
 
+        if (preview) URL.revokeObjectURL(preview);
+
         setImage(file);
         setPreview(URL.createObjectURL(file));
     };
@@ -54,13 +73,45 @@ function ReportIssue({ onBack }) {
         setPreview(null);
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
-        console.log("Issue Report:", formData);
-        console.log("Attached Image:", image);
+        if (isSubmitting) return;
 
-        setSubmitted(true);
+        const trimmedTitle = formData.title.trim();
+        const trimmedDescription = formData.description.trim();
+        const trimmedLocation = formData.location.trim();
+
+        if (!trimmedTitle || !formData.category || !trimmedDescription || !trimmedLocation) {
+            setError("Please fill in all required fields.");
+            return;
+        }
+
+        const payload = {
+            title: trimmedTitle,
+            category: CATEGORY_MAP[formData.category] || "other",
+            description: trimmedDescription,
+            location: {
+                address: trimmedLocation,
+            },
+        };
+
+        setIsSubmitting(true);
+        setError("");
+
+        try {
+            await createIssue(payload);
+            if (preview) URL.revokeObjectURL(preview);
+            setSubmitted(true);
+        } catch (err) {
+            const message =
+                err?.message === "Failed to fetch"
+                    ? "Unable to reach the server. Please check that the backend is running and try again."
+                    : err?.message || "Failed to submit issue report. Please try again.";
+            setError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (submitted) {
@@ -78,8 +129,8 @@ function ReportIssue({ onBack }) {
                     </h2>
 
                     <p className="text-slate-500 mt-3">
-                        Your issue has been recorded in this frontend demo.
-                        Backend submission will be implemented later.
+                        Your issue has been submitted successfully.
+                        Authorities can now review and track your report.
                     </p>
 
                     <button
@@ -265,6 +316,7 @@ function ReportIssue({ onBack }) {
                                         type="file"
                                         accept="image/*"
                                         onChange={handleImageChange}
+                                        disabled={isSubmitting}
                                         className="hidden"
                                     />
 
@@ -272,37 +324,73 @@ function ReportIssue({ onBack }) {
 
                             ) : (
 
-                                <div className="relative w-fit">
+                                <div>
 
-                                    <img
-                                        src={preview}
-                                        alt="Issue preview"
-                                        className="w-48 h-40 object-cover rounded-xl border"
-                                    />
+                                    <div className="relative w-fit">
 
-                                    <button
-                                        type="button"
-                                        onClick={removeImage}
-                                        className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full"
-                                    >
-                                        <X size={16} />
-                                    </button>
+                                        <img
+                                            src={preview}
+                                            alt="Issue preview"
+                                            className="w-48 h-40 object-cover rounded-xl border"
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={removeImage}
+                                            disabled={isSubmitting}
+                                            className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full disabled:opacity-60"
+                                        >
+                                            <X size={16} />
+                                        </button>
+
+                                    </div>
+
+                                    <p className="text-xs text-amber-600 mt-2">
+                                        Preview only: image upload is not yet connected{image ? ` (${image.name} will not be uploaded)` : ""}.
+                                    </p>
 
                                 </div>
 
                             )}
 
+                            {!preview && (
+                                <p className="text-xs text-slate-400 mt-2">
+                                    Image preview is supported locally; image upload to the server is not yet connected.
+                                </p>
+                            )}
+
                         </div>
+
+                        {/* Error Message */}
+                        {error && (
+                            <div
+                                role="alert"
+                                className="flex items-start gap-2.5 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+                            >
+                                <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                                <span>{error}</span>
+                            </div>
+                        )}
 
                         {/* Submit */}
                         <div className="pt-4 border-t border-slate-100">
 
                             <button
                                 type="submit"
-                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition"
+                                disabled={isSubmitting}
+                                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white py-3 rounded-lg font-semibold transition"
                             >
-                                <Send size={18} />
-                                Submit Issue Report
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 size={18} className="animate-spin" />
+                                        Submitting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send size={18} />
+                                        Submit Issue Report
+                                    </>
+                                )}
                             </button>
 
                         </div>
