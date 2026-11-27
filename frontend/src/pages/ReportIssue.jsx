@@ -8,6 +8,8 @@ import {
     FileText,
     Loader2,
     AlertCircle,
+    LocateFixed,
+    CheckCircle2,
 } from "lucide-react";
 import { createIssue } from "../services/issueService";
 
@@ -30,6 +32,9 @@ function ReportIssue({ onBack }) {
         location: "",
     });
 
+    const [coordinates, setCoordinates] = useState(null);
+    const [locationStatus, setLocationStatus] = useState("idle"); // "idle" | "loading" | "success" | "error"
+    const [locationMessage, setLocationMessage] = useState("");
     const [image, setImage] = useState(null);
     const [preview, setPreview] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -43,6 +48,63 @@ function ReportIssue({ onBack }) {
             ...formData,
             [e.target.name]: e.target.value,
         });
+    };
+
+    const handleUseMyLocation = () => {
+        if (locationStatus === "loading" || isSubmitting) return;
+
+        if (!navigator.geolocation) {
+            setLocationStatus("error");
+            setLocationMessage(
+                "Geolocation is not supported by your browser. Please enter the address manually."
+            );
+            return;
+        }
+
+        setLocationStatus("loading");
+        setLocationMessage("Waiting for location...");
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                setCoordinates({ latitude, longitude });
+                setLocationStatus("success");
+                setLocationMessage("Location coordinates captured.");
+            },
+            (geoError) => {
+                setCoordinates(null);
+                setLocationStatus("error");
+
+                if (geoError.code === geoError.PERMISSION_DENIED) {
+                    setLocationMessage(
+                        "Location permission denied. You can still submit the report using the address field."
+                    );
+                } else if (geoError.code === geoError.POSITION_UNAVAILABLE) {
+                    setLocationMessage(
+                        "Location is currently unavailable. Please enter the address manually."
+                    );
+                } else if (geoError.code === geoError.TIMEOUT) {
+                    setLocationMessage(
+                        "Location request timed out. You can try again or enter the address manually."
+                    );
+                } else {
+                    setLocationMessage(
+                        "Unable to capture location. You can still submit the report using the address field."
+                    );
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0,
+            }
+        );
+    };
+
+    const clearCoordinates = () => {
+        setCoordinates(null);
+        setLocationStatus("idle");
+        setLocationMessage("");
     };
 
     const handleImageChange = (e) => {
@@ -87,13 +149,26 @@ function ReportIssue({ onBack }) {
             return;
         }
 
+        const locationPayload = {
+            address: trimmedLocation,
+        };
+
+        if (
+            coordinates &&
+            typeof coordinates.latitude === "number" &&
+            typeof coordinates.longitude === "number"
+        ) {
+            locationPayload.coordinates = {
+                type: "Point",
+                coordinates: [coordinates.longitude, coordinates.latitude],
+            };
+        }
+
         const payload = {
             title: trimmedTitle,
             category: CATEGORY_MAP[formData.category] || "other",
             description: trimmedDescription,
-            location: {
-                address: trimmedLocation,
-            },
+            location: locationPayload,
         };
 
         setIsSubmitting(true);
@@ -266,28 +341,84 @@ function ReportIssue({ onBack }) {
                                 Issue Location *
                             </label>
 
-                            <div className="relative">
+                            <div className="flex flex-col sm:flex-row gap-3">
 
-                                <MapPin
-                                    size={19}
-                                    className="absolute left-4 top-3.5 text-slate-400"
-                                />
+                                <div className="relative flex-1">
 
-                                <input
-                                    type="text"
-                                    name="location"
-                                    value={formData.location}
-                                    onChange={handleChange}
-                                    placeholder="Enter street, area or landmark"
-                                    required
-                                    className="w-full border border-slate-200 rounded-lg pl-11 pr-4 py-3 outline-none focus:border-blue-500"
-                                />
+                                    <MapPin
+                                        size={19}
+                                        className="absolute left-4 top-3.5 text-slate-400"
+                                    />
+
+                                    <input
+                                        type="text"
+                                        name="location"
+                                        value={formData.location}
+                                        onChange={handleChange}
+                                        placeholder="Enter street, area or landmark"
+                                        required
+                                        className="w-full border border-slate-200 rounded-lg pl-11 pr-4 py-3 outline-none focus:border-blue-500"
+                                    />
+
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={handleUseMyLocation}
+                                    disabled={locationStatus === "loading" || isSubmitting}
+                                    className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed font-medium text-sm whitespace-nowrap transition"
+                                >
+                                    {locationStatus === "loading" ? (
+                                        <>
+                                            <Loader2 size={17} className="animate-spin" />
+                                            Waiting for location...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LocateFixed size={17} />
+                                            Use My Location
+                                        </>
+                                    )}
+                                </button>
 
                             </div>
 
-                            <p className="text-xs text-slate-400 mt-2">
-                                Map-based location selection will be added later.
-                            </p>
+                            {locationStatus === "success" && coordinates && (
+                                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 bg-green-50 border border-green-200 text-green-800 px-3.5 py-2.5 rounded-lg text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                                        <span>
+                                            <strong>{locationMessage}</strong>{" "}
+                                            Latitude: <code className="font-mono">{coordinates.latitude.toFixed(6)}</code>,{" "}
+                                            Longitude: <code className="font-mono">{coordinates.longitude.toFixed(6)}</code>
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={clearCoordinates}
+                                        disabled={isSubmitting}
+                                        className="text-green-700 hover:text-green-900 font-medium underline"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                            )}
+
+                            {locationStatus === "error" && locationMessage && (
+                                <div
+                                    role="status"
+                                    className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 px-3.5 py-2.5 rounded-lg text-xs"
+                                >
+                                    <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                                    <span>{locationMessage}</span>
+                                </div>
+                            )}
+
+                            {locationStatus === "idle" && (
+                                <p className="text-xs text-slate-400 mt-2">
+                                    Optionally click &ldquo;Use My Location&rdquo; to attach GPS coordinates. Address remains required and editable.
+                                </p>
+                            )}
 
                         </div>
 
