@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import ReportIssue from "./pages/ReportIssue";
+import { getIssues } from "./services/issueService";
 
 import {
     LayoutDashboard,
@@ -14,71 +15,136 @@ import {
     CheckCircle,
     AlertCircle,
     Menu,
+    Loader2,
+    RefreshCw,
 } from "lucide-react";
 
-const stats = [
-    {
-        title: "Total Reports",
-        value: "1,284",
-        icon: FileText,
-        color: "text-blue-600",
-        bg: "bg-blue-100",
-    },
-    {
-        title: "Pending Issues",
-        value: "342",
-        icon: Clock,
-        color: "text-orange-600",
-        bg: "bg-orange-100",
-    },
-    {
-        title: "Resolved Issues",
-        value: "876",
-        icon: CheckCircle,
-        color: "text-green-600",
-        bg: "bg-green-100",
-    },
-    {
-        title: "Critical Issues",
-        value: "66",
-        icon: AlertCircle,
-        color: "text-red-600",
-        bg: "bg-red-100",
-    },
-];
+const STATUS_LABELS = {
+    pending: "Pending",
+    in_progress: "In Progress",
+    resolved: "Resolved",
+};
 
-const reports = [
-    {
-        id: "CX-1024",
-        title: "Damaged Road",
-        location: "Mathura, Uttar Pradesh",
-        status: "Pending",
-        priority: "High",
-    },
-    {
-        id: "CX-1025",
-        title: "Garbage Overflow",
-        location: "Vrindavan, Uttar Pradesh",
-        status: "In Progress",
-        priority: "Medium",
-    },
-    {
-        id: "CX-1026",
-        title: "Streetlight Not Working",
-        location: "Agra, Uttar Pradesh",
-        status: "Resolved",
-        priority: "Low",
-    },
-];
+const PRIORITY_LABELS = {
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    critical: "Critical",
+};
+
+const formatReportId = (id) => {
+    if (!id || typeof id !== "string") return "N/A";
+    return `#${id.slice(-6).toUpperCase()}`;
+};
 
 function App() {
     const [currentPage, setCurrentPage] = useState("dashboard");
+    const [issues, setIssues] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const fetchIssues = useCallback(async () => {
+        setIsLoading(true);
+        setError("");
+
+        try {
+            const response = await getIssues();
+            const fetchedIssues = Array.isArray(response?.data) ? response.data : [];
+            setIssues(fetchedIssues);
+        } catch (err) {
+            const message =
+                err?.message === "Failed to fetch"
+                    ? "Unable to reach the server. Please check that the backend is running and try again."
+                    : err?.message || "Failed to load civic reports.";
+            setError(message);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchIssues();
+    }, [fetchIssues]);
+
+    const stats = useMemo(() => {
+        const total = issues.length;
+        const pending = issues.filter((issue) => issue.status === "pending").length;
+        const resolved = issues.filter((issue) => issue.status === "resolved").length;
+        const critical = issues.filter((issue) => issue.priority === "critical").length;
+
+        const formatStat = (count) =>
+            isLoading && issues.length === 0 ? "..." : count.toLocaleString();
+
+        return [
+            {
+                title: "Total Reports",
+                value: formatStat(total),
+                icon: FileText,
+                color: "text-blue-600",
+                bg: "bg-blue-100",
+            },
+            {
+                title: "Pending Issues",
+                value: formatStat(pending),
+                icon: Clock,
+                color: "text-orange-600",
+                bg: "bg-orange-100",
+            },
+            {
+                title: "Resolved Issues",
+                value: formatStat(resolved),
+                icon: CheckCircle,
+                color: "text-green-600",
+                bg: "bg-green-100",
+            },
+            {
+                title: "Critical Issues",
+                value: formatStat(critical),
+                icon: AlertCircle,
+                color: "text-red-600",
+                bg: "bg-red-100",
+            },
+        ];
+    }, [issues, isLoading]);
+
+    const sortedIssues = useMemo(() => {
+        return [...issues].sort((a, b) => {
+            const dateA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+        });
+    }, [issues]);
+
+    const filteredReports = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        if (!query) return sortedIssues;
+
+        return sortedIssues.filter((issue) => {
+            const title = (issue?.title || "").toLowerCase();
+            const category = (issue?.category || "").toLowerCase();
+            const address = (issue?.location?.address || "").toLowerCase();
+            const rawStatus = (issue?.status || "").toLowerCase();
+            const statusLabel = (STATUS_LABELS[issue?.status] || "").toLowerCase();
+
+            return (
+                title.includes(query) ||
+                category.includes(query) ||
+                address.includes(query) ||
+                rawStatus.includes(query) ||
+                statusLabel.includes(query)
+            );
+        });
+    }, [sortedIssues, searchQuery]);
 
     // Navigate to Report Issue page
     if (currentPage === "report") {
         return (
             <ReportIssue
-                onBack={() => setCurrentPage("dashboard")}
+                onBack={() => {
+                    setCurrentPage("dashboard");
+                    fetchIssues();
+                }}
             />
         );
     }
@@ -249,6 +315,8 @@ function App() {
 
                                 <input
                                     type="text"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="Search reports..."
                                     className="outline-none text-sm w-full"
                                 />
@@ -257,65 +325,147 @@ function App() {
 
                         </div>
 
-                        <div className="overflow-x-auto">
+                        {isLoading ? (
 
-                            <table className="w-full text-left min-w-[650px]">
+                            <div className="p-12 flex flex-col items-center justify-center text-slate-500 gap-3">
+                                <Loader2 size={28} className="animate-spin text-blue-600" />
+                                <p className="text-sm font-medium">Loading civic reports...</p>
+                            </div>
 
-                                <thead className="bg-slate-50 text-slate-500 text-sm">
-                                    <tr>
-                                        <th className="p-4">Report ID</th>
-                                        <th className="p-4">Issue</th>
-                                        <th className="p-4">Location</th>
-                                        <th className="p-4">Priority</th>
-                                        <th className="p-4">Status</th>
-                                    </tr>
-                                </thead>
+                        ) : error ? (
 
-                                <tbody>
+                            <div
+                                role="alert"
+                                className="p-10 flex flex-col items-center justify-center text-center gap-3"
+                            >
+                                <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                                    <AlertCircle size={24} />
+                                </div>
+                                <p className="font-semibold text-slate-800">
+                                    Failed to load reports
+                                </p>
+                                <p className="text-sm text-slate-500 max-w-md">
+                                    {error}
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={fetchIssues}
+                                    className="mt-2 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                                >
+                                    <RefreshCw size={16} />
+                                    Retry
+                                </button>
+                            </div>
 
-                                    {reports.map((report) => (
-                                        <tr
-                                            key={report.id}
-                                            className="border-t border-slate-100"
-                                        >
+                        ) : issues.length === 0 ? (
 
-                                            <td className="p-4 font-medium text-blue-600">
-                                                {report.id}
-                                            </td>
+                            <div className="p-12 flex flex-col items-center justify-center text-center gap-2">
+                                <div className="w-12 h-12 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center mb-1">
+                                    <FileText size={24} />
+                                </div>
+                                <p className="font-semibold text-slate-800">
+                                    No civic reports yet
+                                </p>
+                                <p className="text-sm text-slate-500 max-w-md">
+                                    When citizens submit issues, they will appear here for tracking and resolution.
+                                </p>
+                            </div>
 
-                                            <td className="p-4 font-medium">
-                                                {report.title}
-                                            </td>
+                        ) : filteredReports.length === 0 ? (
 
-                                            <td className="p-4 text-slate-500">
-                                                {report.location}
-                                            </td>
+                            <div className="p-12 flex flex-col items-center justify-center text-center gap-2">
+                                <p className="font-semibold text-slate-800">
+                                    No matching reports found
+                                </p>
+                                <p className="text-sm text-slate-500">
+                                    No reports matched &ldquo;{searchQuery}&rdquo;. Try searching by title, category, location, or status.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchQuery("")}
+                                    className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700"
+                                >
+                                    Clear search
+                                </button>
+                            </div>
 
-                                            <td className="p-4">
-                                                {report.priority}
-                                            </td>
+                        ) : (
 
-                                            <td className="p-4">
+                            <div className="overflow-x-auto">
 
-                                                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${report.status === "Resolved"
-                                                        ? "bg-green-100 text-green-700"
-                                                        : report.status === "Pending"
-                                                            ? "bg-orange-100 text-orange-700"
-                                                            : "bg-blue-100 text-blue-700"
-                                                    }`}>
-                                                    {report.status}
-                                                </span>
+                                <table className="w-full text-left min-w-[650px]">
 
-                                            </td>
-
+                                    <thead className="bg-slate-50 text-slate-500 text-sm">
+                                        <tr>
+                                            <th className="p-4">Report ID</th>
+                                            <th className="p-4">Issue</th>
+                                            <th className="p-4">Location</th>
+                                            <th className="p-4">Priority</th>
+                                            <th className="p-4">Status</th>
                                         </tr>
-                                    ))}
+                                    </thead>
 
-                                </tbody>
+                                    <tbody>
 
-                            </table>
+                                        {filteredReports.map((issue, index) => {
+                                            const priorityLabel =
+                                                PRIORITY_LABELS[issue?.priority] ||
+                                                issue?.priority ||
+                                                "Unknown";
+                                            const statusLabel =
+                                                STATUS_LABELS[issue?.status] ||
+                                                issue?.status ||
+                                                "Unknown";
 
-                        </div>
+                                            return (
+                                                <tr
+                                                    key={issue?._id || `issue-${index}`}
+                                                    className="border-t border-slate-100"
+                                                >
+
+                                                    <td
+                                                        className="p-4 font-medium text-blue-600"
+                                                        title={issue?._id || ""}
+                                                    >
+                                                        {formatReportId(issue?._id)}
+                                                    </td>
+
+                                                    <td className="p-4 font-medium">
+                                                        {issue?.title || "Untitled Issue"}
+                                                    </td>
+
+                                                    <td className="p-4 text-slate-500">
+                                                        {issue?.location?.address || "Location not specified"}
+                                                    </td>
+
+                                                    <td className="p-4">
+                                                        {priorityLabel}
+                                                    </td>
+
+                                                    <td className="p-4">
+
+                                                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${issue?.status === "resolved"
+                                                                ? "bg-green-100 text-green-700"
+                                                                : issue?.status === "pending"
+                                                                    ? "bg-orange-100 text-orange-700"
+                                                                    : "bg-blue-100 text-blue-700"
+                                                            }`}>
+                                                            {statusLabel}
+                                                        </span>
+
+                                                    </td>
+
+                                                </tr>
+                                            );
+                                        })}
+
+                                    </tbody>
+
+                                </table>
+
+                            </div>
+
+                        )}
 
                     </div>
 
