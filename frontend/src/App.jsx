@@ -1,3 +1,7 @@
+import { useState } from "react";
+
+import ReportIssue from "./pages/ReportIssue";
+
 import {
     LayoutDashboard,
     FileText,
@@ -68,6 +72,17 @@ const reports = [
 ];
 
 function App() {
+    const [currentPage, setCurrentPage] = useState("dashboard");
+
+    // Navigate to Report Issue page
+    if (currentPage === "report") {
+        return (
+            <ReportIssue
+                onBack={() => setCurrentPage("dashboard")}
+            />
+        );
+    }
+
     return (
         <div className="min-h-screen bg-slate-100 text-slate-800 flex">
 
@@ -119,16 +134,21 @@ function App() {
                 <header className="bg-white border-b border-slate-200 px-5 md:px-8 py-5 flex items-center justify-between">
 
                     <div className="flex items-center gap-3">
+
                         <button className="md:hidden">
                             <Menu />
                         </button>
 
                         <div>
-                            <h2 className="text-xl font-bold">Dashboard</h2>
+                            <h2 className="text-xl font-bold">
+                                Dashboard
+                            </h2>
+
                             <p className="text-sm text-slate-500">
                                 Welcome to CivicX Management Portal
                             </p>
                         </div>
+
                     </div>
 
                     <div className="flex items-center gap-5">
@@ -142,6 +162,7 @@ function App() {
                         </div>
 
                     </div>
+
                 </header>
 
                 {/* Dashboard Body */}
@@ -160,7 +181,11 @@ function App() {
                             </p>
                         </div>
 
-                        <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-medium">
+                        {/* Report Issue Navigation */}
+                        <button
+                            onClick={() => setCurrentPage("report")}
+                            className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-medium transition"
+                        >
                             <Plus size={19} />
                             Report an Issue
                         </button>
@@ -174,7 +199,10 @@ function App() {
                             const Icon = item.icon;
 
                             return (
-                                <div key={item.title} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                <div
+                                    key={item.title}
+                                    className="bg-white p-6 rounded-xl shadow-sm border border-slate-200"
+                                >
 
                                     <div className="flex items-center justify-between">
 
@@ -216,6 +244,7 @@ function App() {
                             </div>
 
                             <div className="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
+
                                 <Search size={18} className="text-slate-400" />
 
                                 <input
@@ -245,7 +274,10 @@ function App() {
                                 <tbody>
 
                                     {reports.map((report) => (
-                                        <tr key={report.id} className="border-t border-slate-100">
+                                        <tr
+                                            key={report.id}
+                                            className="border-t border-slate-100"
+                                        >
 
                                             <td className="p-4 font-medium text-blue-600">
                                                 {report.id}
@@ -264,6 +296,7 @@ function App() {
                                             </td>
 
                                             <td className="p-4">
+
                                                 <span className={`px-3 py-1 rounded-full text-xs font-semibold ${report.status === "Resolved"
                                                         ? "bg-green-100 text-green-700"
                                                         : report.status === "Pending"
@@ -272,6 +305,7 @@ function App() {
                                                     }`}>
                                                     {report.status}
                                                 </span>
+
                                             </td>
 
                                         </tr>
@@ -292,6 +326,7 @@ function App() {
                 </section>
 
             </main>
+
         </div>
     );
 }
